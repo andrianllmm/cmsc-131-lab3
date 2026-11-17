@@ -81,26 +81,41 @@ Keep each part short. Update it when the plan changes.
 
 ### Problem analysis
 
-The five flags and what each one does. What the oracle is, and what
-agreement with it means for a line that matches inside a longer word.
+`rengrep` prints the lines that contain a literal pattern.
+
+| Flag | Effect |
+|---|---|
+| `-n` | Prefix each line with its 1-based number and `:` |
+| `-c` | Print only the count of selected lines |
+| `-v` | Select the lines that do not match |
+| `-i` | Ignore case, but print the original line |
+| `-w` | Match only where the pattern is a whole word (`[A-Za-z0-9_]` boundaries) |
+
+The oracle is `LC_ALL=C grep -F`. Correct means byte-identical output.
+`-F` is a substring search, so `cat` matches inside `concatenate`. Only
+`-w` rejects that match.
 
 ### Solution architecture
 
-How the four routines split the work. How the line index is built from
-one buffer, how the flag table dispatches, and which registers each
-routine uses.
+`driver.c` reads the file, loops over the lines, and prints. It calls
+four routines, all cdecl. Each routine preserves `ebx`, `esi`, `edi`,
+and `ebp`, and returns in `eax`.
+
+| Routine | File | Approach |
+|---|---|---|
+| `parse_args` | `args.asm` | `cld`, then `repne scasb` finds each flag char in `flag_chars` (`n c v i w`, bit order). Bit = `1 << index`. The first positional is the pattern, the second is the file. |
+| `index_lines` | `lines.asm` | One pass over the buffer. Each `0x0A` closes a line, recorded as `{offset, length}` without the newline. Trailing bytes after the last newline form a final line. `len == 0` gives 0 lines. Stops at `max`. |
+| `line_matches` | `match.asm` | Tries each start in `0..linelen-patlen` (signed bound). `repe cmpsb` when `fold == 0`. A register-folding loop when `fold != 0`, so the buffer is never written. On `whole`, it checks the bytes before and after the match and keeps scanning on failure. |
+| `int_to_dec` | `fmt.asm` | Divides by 10 and pushes each remainder. Pops them into `out`. Bottom-tested, so 0 prints `0`. |
 
 ### Timeline
 
-One line per week. Name the subsystem each week finishes and the member
-who owns it.
-
 | Week | Goal | Owner |
 |---|---|---|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | Defense | |
+| 1 | `args.asm`, `lines.asm`: prototype runs on `sample.txt` | Dejel, Romyr |
+| 2 | `match.asm` (no flags, `-i`), `fmt.asm` (`-n`, `-c`) | Andrian, Dejel |
+| 3 | `-w`, edge cases, extra tests, `make check` green, Quirks | All |
+| 4 | Defense | All |
 
 ## Subsystem Ownership
 
