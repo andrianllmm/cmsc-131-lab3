@@ -110,9 +110,9 @@ share one. The commit history must agree with this table.
 
 | Subsystem | Owner |
 |---|---|
-| Buffering and lines (`lines.asm`) | |
-| Matching (`match.asm`) | |
-| Formatting and flags (`fmt.asm`, `args.asm`, the tests you add) | |
+| Buffering and lines (`lines.asm`) | Romyr (@Romyr05) |
+| Matching (`match.asm`) | Andrian Lloyd Maagma (@andrianllmm) |
+| Formatting and flags (`fmt.asm`, `args.asm`, the tests you add) | Dejel Cyrus De Asis (@dejely) |
 
 ## Quirks and Issues
 
