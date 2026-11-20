@@ -2,11 +2,6 @@
 ; args.asm - parse_args, the command line to a flag set, a pattern, and a
 ; file name. Callable from C.
 ;
-; This is your starting point: it assembles and links as-is, so the build
-; works before you write any code. Right now it returns -1, which makes
-; rengrep print its usage line for every command. Nothing else runs until
-; this routine works, so write it first. It is the shortest of the four.
-;
 ; The contract, from driver.c:
 ;
 ;       struct args *out            [ebp+16]
@@ -48,36 +43,87 @@
   section .note.GNU-stack noalloc noexec nowrite progbits
 %endif
 
+%ifdef ELF_TYPE
+segment .rodata
+%else
+segment .rdata
+%endif
+flag_chars: db "ncviw"
+flag_count: equ $ - flag_chars
+
 segment .text
         global  _parse_args
 
 _parse_args:
         enter   0,0
-        pusha
+        push    ebx
+        push    esi
+        push    edi
+        cld
 
-        ;
-        ; TODO: parse.
-        ;
-        ; The steps the manual describes:
-        ;
-        ;   clear out->flags, out->pattern, out->path
-        ;   for each token in argv[1..argc-1]:
-        ;       if the token is a flag group:
-        ;           for each byte after the dash:
-        ;               find it in the table with repne scasb
-        ;               not found: return the byte
-        ;               set the bit for its index
-        ;       else if out->pattern is empty: out->pattern = token
-        ;       else if out->path is empty:    out->path = token
-        ;       else: return -1
-        ;   return -1 if the pattern or the path is still empty
-        ;   return 0
-        ;
-        ; After repne scasb finds a byte, ecx has been decremented once for
-        ; the hit as well. Work the index out from that before you shift.
-        ;
+        mov     edi, [ebp+16]            ; out
+        xor     eax, eax
+        mov     [edi], eax              ; flags
+        mov     [edi+4], eax            ; pattern
+        mov     [edi+8], eax            ; path
 
-        popa
+        mov     edx, [ebp+12]            ; argv
+        mov     ebx, 1                   ; skip argv[0]
+
+.next_arg:
+        cmp     ebx, [ebp+8]
+        jge     .check_positionals
+        mov     esi, [edx+ebx*4]
+        inc     ebx
+        cmp     byte [esi], '-'
+        jne     .positional
+        cmp     byte [esi+1], 0
+        je      .positional
+        inc     esi
+
+.next_flag:
+        movzx   eax, byte [esi]
+        test    eax, eax
+        jz      .next_arg
+        mov     edi, flag_chars
+        mov     ecx, flag_count
+        repne scasb
+        jne     .done                    ; eax holds the unknown byte
+
+        ; SCASB also counts the hit, so index = flag_count - ecx - 1.
+        neg     ecx
+        add     ecx, flag_count - 1
+        mov     eax, 1
+        shl     eax, cl
+        mov     edi, [ebp+16]
+        or      [edi], eax
+        inc     esi
+        jmp     .next_flag
+
+.positional:
+        cmp     dword [edi+4], 0
+        je      .save_pattern
+        cmp     dword [edi+8], 0
+        jne     .bad_positionals
+        mov     [edi+8], esi
+        jmp     .next_arg
+
+.save_pattern:
+        mov     [edi+4], esi
+        jmp     .next_arg
+
+.check_positionals:
+        cmp     dword [edi+8], 0         ; a path also means a pattern was saved
+        je      .bad_positionals
+        xor     eax, eax
+        jmp     .done
+
+.bad_positionals:
         mov     eax, -1
+
+.done:
+        pop     edi
+        pop     esi
+        pop     ebx
         leave
         ret
