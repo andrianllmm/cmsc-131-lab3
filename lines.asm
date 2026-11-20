@@ -47,26 +47,58 @@ segment .text
 
 _index_lines:
         enter   0,0
-        pusha
 
-        ;
-        ; TODO: build the index.
-        ;
-        ; Walk buf looking for newline bytes (0x0A). Each newline closes
-        ; the line that ended before it. The tricky cases:
-        ;
-        ;   * If the file does not end with a newline, the bytes after the
-        ;     last newline still form a line. The last entry has no
-        ;     newline and must still be indexed.
-        ;   * An empty file produces zero lines, not one empty line.
-        ;
-        ; Watch the max capacity too. out holds max entries. A file of len
-        ; bytes has at most len lines, when every byte is a newline, so the
-        ; caller's max is always big enough. The routine must still stop
-        ; writing at max.
-        ;
+        ; Save the registers we will use
+        push    ebx                     ; Base register
+        push    esi                     ; Source index
+        push    edi                     ; Destination index
 
-        popa
-        mov     eax, 0
+        ; Load the parameters into the registers
+        mov     esi, [ebp+8]            ; buf -> pointer to the first byte
+        mov     edi, [ebp+16]           ; out ->  the output (where to write the line offsets and lengths)
+        mov     ebx, [ebp+20]           ; max -> how much room out has
+
+        ; Initialize the counters 
+        xor     ecx, ecx                ; i = 0
+        xor     edx, edx                ; start = 0
+        xor     eax, eax                ; count = 0
+
+        ; Scan each byte for a newline
+scan:
+
+        cmp     ecx, [ebp+12]           ; i < len?
+        jge     tail
+
+        cmp     byte [esi+ecx], 0x0A    ; buf[i] == newline?
+        jne     next
+
+        ; Record the line, stop if out is full
+        cmp     eax, ebx                ; count >= max?
+        jge     done
+        mov     [edi+eax*8], edx        ; offset = start
+        mov     [edi+eax*8+4], ecx      ; length = i - start
+        sub     [edi+eax*8+4], edx
+        inc     eax                     ; count++
+        lea     edx, [ecx+1]            ; start = i + 1
+next:
+        inc     ecx                     ; i++
+        jmp     scan
+
+        ; Record the last line if it has no newline
+tail:
+        cmp     edx, ecx                ; start < len?
+        jge     done
+        cmp     eax, ebx                ; count >= max?
+        jge     done
+        mov     [edi+eax*8], edx        ; offset = start
+        mov     [edi+eax*8+4], ecx      ; length = len - start
+        sub     [edi+eax*8+4], edx
+        inc     eax                     ; count++
+
+        ; Restore the registers, count is already in eax
+done:
+        pop     edi
+        pop     esi
+        pop     ebx
         leave
         ret
