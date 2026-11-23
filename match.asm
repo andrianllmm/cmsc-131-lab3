@@ -68,21 +68,36 @@ _line_matches:
         pusha
 
         ;
-        ; TODO: search.
+        ; Case-sensitive search (fold and whole are not handled yet).
+        ; Registers: ebx = line, eax = current start, edx = last start.
         ;
-        ; The loop the manual describes:
-        ;
-        ;   for start = 0 to linelen - patlen:
-        ;       compare patlen bytes at line+start against pat
-        ;       if equal: check word boundaries if whole
-        ;                 return 1 if they pass
-        ;   return 0
-        ;
-        ; The fast path (fold == 0) uses repe cmpsb. The folding path
-        ; compares a byte at a time, folding both sides in a register.
-        ; Both need cld first.
-        ;
+        cld                     ; string ops must advance upward
 
+        mov     ebx, [ebp+8]    ; ebx = line
+        mov     edx, [ebp+12]   ; edx = linelen
+        sub     edx, [ebp+20]   ; edx = last start = linelen - patlen
+        jl      .nomatch        ; signed: pat longer than line, skip the scan
+
+        xor     eax, eax        ; eax = start, begin at offset 0
+.scan:
+        cmp     eax, edx
+        jg      .nomatch        ; signed: past the last possible start
+        mov     esi, [ebp+16]   ; esi = pat (cmpsb moved it last round)
+        lea     edi, [ebx+eax]  ; edi = line + start
+        mov     ecx, [ebp+20]   ; ecx = patlen (reset, cmpsb consumed it)
+        test    ecx, ecx        ; patlen 0 -> ZF=1, so empty pat matches
+        repe    cmpsb           ; compare while equal and ecx != 0
+        je      .found          ; ZF=1: all patlen bytes were equal
+        inc     eax             ; mismatch: try the next start
+        jmp     .scan
+
+.found:
+        popa                    ; restore ebx, esi, edi
+        mov     eax, 1          ; return 1: match
+        leave
+        ret
+
+.nomatch:
         popa
         mov     eax, 0
         leave
