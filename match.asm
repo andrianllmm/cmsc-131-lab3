@@ -64,38 +64,74 @@ segment .text
         global  _line_matches
 
 _line_matches:
-        enter   0,0
+        enter   4,0             ; [ebp-4] = last start
         pusha
 
         ;
-        ; Case-sensitive search (fold and whole are not handled yet).
-        ; Registers: ebx = line, eax = current start, edx = last start.
+        ; Substring search (whole is not handled yet).
+        ; Registers: ebx = line, edx = current start. The last start lives
+        ; in [ebp-4] so eax/ecx stay free for the folding loop.
         ;
         cld                     ; string ops must advance upward
 
         mov     ebx, [ebp+8]    ; ebx = line
-        mov     edx, [ebp+12]   ; edx = linelen
-        sub     edx, [ebp+20]   ; edx = last start = linelen - patlen
+        mov     eax, [ebp+12]   ; eax = linelen
+        sub     eax, [ebp+20]   ; eax = last start = linelen - patlen
         jl      .nomatch        ; signed: pat longer than line, skip the scan
+        mov     [ebp-4], eax
 
-        xor     eax, eax        ; eax = start, begin at offset 0
+        xor     edx, edx        ; edx = start, begin at offset 0
 .scan:
-        cmp     eax, edx
+        cmp     edx, [ebp-4]
         jg      .nomatch        ; signed: past the last possible start
-        mov     esi, [ebp+16]   ; esi = pat (cmpsb moved it last round)
-        lea     edi, [ebx+eax]  ; edi = line + start
-        mov     ecx, [ebp+20]   ; ecx = patlen (reset, cmpsb consumed it)
+        mov     esi, [ebp+16]   ; esi = pat (reset, the compare moves it)
+        lea     edi, [ebx+edx]  ; edi = line + start
+        mov     ecx, [ebp+20]   ; ecx = patlen (reset, the compare uses it up)
+        cmp     dword [ebp+24], 0
+        jne     .fold           ; fold != 0: take the folding path
+
         test    ecx, ecx        ; patlen 0 -> ZF=1, so empty pat matches
         repe    cmpsb           ; compare while equal and ecx != 0
         je      .found          ; ZF=1: all patlen bytes were equal
-        inc     eax             ; mismatch: try the next start
-        jmp     .scan
+        jmp     .next
+
+        ; Folding path: repe cmpsb compares raw bytes, so compare one byte
+        ; at a time, lowercasing both sides in registers only. The buffer
+        ; is never written, so the original line is still what gets printed.
+.fold:
+        test    ecx, ecx
+        jz      .found          ; guard: the loop below compares before it
+                                ; checks the count, so patlen 0 skips it
+.fold_loop:
+        lodsb                   ; al = pat byte, esi++
+        mov     ah, [edi]       ; ah = line byte
+        inc     edi
+        cmp     al, 'A'
+        jb      .al_done
+        cmp     al, 'Z'
+        ja      .al_done
+        add     al, 32          ; 'A'-'Z' -> 'a'-'z'
+.al_done:
+        cmp     ah, 'A'
+        jb      .ah_done
+        cmp     ah, 'Z'
+        ja      .ah_done
+        add     ah, 32
+.ah_done:
+        cmp     al, ah
+        jne     .next           ; mismatch: try the next start
+        loop    .fold_loop      ; ecx--, repeat until all bytes matched
+                                ; falls through to .found
 
 .found:
         popa                    ; restore ebx, esi, edi
         mov     eax, 1          ; return 1: match
         leave
         ret
+
+.next:
+        inc     edx             ; try the next start
+        jmp     .scan
 
 .nomatch:
         popa
