@@ -1,11 +1,6 @@
 ;
 ; fmt.asm - int_to_dec, integer to decimal text. Callable from C.
 ;
-; This is your starting point: it assembles and links as-is, so the build
-; works before you write any code. Right now it writes nothing and returns
-; 0, which makes line numbers print empty. Your job is to replace that with
-; the conversion described below.
-;
 ; The contract, from driver.c:
 ;
 ;       char *out                   [ebp+12]
@@ -61,17 +56,32 @@ segment .text
 
 _int_to_dec:
         enter   0,0
-        pusha
+        push    ebx
+        push    edi
 
-        ;
-        ; TODO: convert.
-        ;
-        ; The loop above is the manual's. Your job is to make it write
-        ; into out (which is [ebp+12]) and return the digit count in eax.
-        ; The pop loop writes one byte per digit to out[0..count-1].
-        ;
+        mov     eax, [ebp+8]            ; n (then the quotient)
+        mov     edi, [ebp+12]           ; next output byte
+        mov     ebx, 10
+        xor     ecx, ecx                ; digit count
 
-        popa
-        mov     eax, 0
+.collect_digits:
+        xor     edx, edx                ; clear the high half of the dividend
+        div     ebx
+        add     dl, '0'
+        push    edx                     ; least significant digit first
+        inc     ecx
+        test    eax, eax
+        jnz     .collect_digits         ; also collect one digit for n == 0
+
+        mov     eax, ecx                ; save the byte count for the return
+.write_digits:
+        pop     edx                     ; most significant digit first
+        mov     [edi], dl
+        inc     edi
+        dec     ecx
+        jnz     .write_digits
+
+        pop     edi
+        pop     ebx
         leave
         ret
